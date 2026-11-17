@@ -21,8 +21,17 @@ open(os.path.join(out, "gamelogic.lua"), "wb").write(abcrypt.encrypt(WRAPPER, "g
 open(os.path.join(out, "ap.lua"), "wb").write(abcrypt.encrypt(open(os.path.join(MOD, "game", "ap.lua"), "rb").read(), "ap.lua"))
 img = os.path.join(MOD, "build", "images")
 make_logo.main(os.path.join(MOD, "backup", "data", "images", "pc"), os.path.join(GAME, "data", "fonts", "1024x768"), img)
-for f in ("logo_overlay.png", "ap_menu_icon.png"):
+for f in ("logo_overlay.png", "ap_menu_icon.png", "ap_launcher_icon.png"):
     shutil.copy2(os.path.join(img, f), os.path.join(out, f))
+
+# Angry Birds Space Archipelago.exe: compiled with the C# compiler that ships with Windows
+import subprocess
+csc = os.path.join(os.environ.get("WINDIR", r"C:\Windows"), "Microsoft.NET", "Framework64", "v4.0.30319", "csc.exe")
+exe = os.path.join(out, "AngryBirdsSpaceArchipelago.exe")
+subprocess.run([csc, "/nologo", "/target:winexe", "/optimize+", f"/win32icon:{os.path.join(img, 'ap_launcher_icon.ico')}",
+                "/r:System.Windows.Forms.dll", "/r:System.Drawing.dll", f"/out:{exe}",
+                os.path.join(HERE, "exe", "Launcher.cs")], check=True)
+shutil.copy2(exe, os.path.join(MOD, "build", "Angry Birds Space Archipelago.exe"))
 
 dst = os.path.join(MOD, "build", "angrybirdsspace.apworld")
 with zipfile.ZipFile(dst, "w", zipfile.ZIP_DEFLATED) as z:

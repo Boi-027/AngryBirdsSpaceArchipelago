@@ -108,6 +108,33 @@ def menu_icon(size=(56, 54), outline=(8, 58, 0, 255)):
     return out
 
 
+def app_icon(size=256):
+    """Launcher exe / window icon (our own drawing, in the game's style): green round button with the AP flower."""
+    from PIL import ImageDraw, ImageFilter
+    n = size * 4  # supersample, then scale down
+    im = Image.new("RGBA", (n, n))
+    d = ImageDraw.Draw(im)
+    d.ellipse((0, 0, n - 1, n - 1), fill=(255, 255, 255, 255))                 # white rim
+    d.ellipse((n * 0.06, n * 0.06, n * 0.94, n * 0.94), fill=(20, 70, 10, 255))  # dark ring
+    grad = Image.new("RGBA", (1, n))
+    for y in range(n):                                                         # green, lighter at the top
+        t = y / (n - 1)
+        grad.putpixel((0, y), (int(196 - 110 * t), int(232 - 90 * t), int(40 - 30 * t), 255))
+    mask = Image.new("L", (n, n))
+    ImageDraw.Draw(mask).ellipse((n * 0.09, n * 0.09, n * 0.91, n * 0.91), fill=255)
+    body = Image.new("RGBA", (n, n))
+    body.paste(grad.resize((n, n)), (0, 0), mask)
+    im.alpha_composite(body)
+    shine = Image.new("L", (n, n))
+    ImageDraw.Draw(shine).ellipse((n * 0.22, n * 0.13, n * 0.78, n * 0.42), fill=60)
+    glow = Image.new("RGBA", (n, n), (255, 255, 255, 0))
+    glow.putalpha(shine.filter(ImageFilter.GaussianBlur(n * 0.03)))
+    im.alpha_composite(glow)
+    flower = menu_icon((int(n * 0.62), int(n * 0.6)))
+    im.alpha_composite(flower, ((n - flower.width) // 2, (n - flower.height) // 2 + int(n * 0.02)))
+    return im.resize((size, size), Image.LANCZOS)
+
+
 def find_rect(dat, name):
     i = dat.index(struct.pack(">H", len(name)) + name) + 2 + len(name)
     return i, struct.unpack_from(">4H2h", dat, i)
@@ -146,6 +173,9 @@ def main(img_dir, font_dir, out_dir):
     new.save(os.path.join(out_dir, "logo_preview.png"))
     overlay.save(os.path.join(out_dir, "logo_overlay.png"))
     menu_icon().save(os.path.join(out_dir, "ap_menu_icon.png"))
+    icon = app_icon(256)
+    icon.save(os.path.join(out_dir, "ap_launcher_icon.png"))
+    icon.save(os.path.join(out_dir, "ap_launcher_icon.ico"), sizes=[(256, 256), (64, 64), (48, 48), (32, 32), (16, 16)])
 
 
 if __name__ == "__main__":

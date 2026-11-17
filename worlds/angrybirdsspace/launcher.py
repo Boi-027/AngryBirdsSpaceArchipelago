@@ -64,18 +64,66 @@ def read_font_glyphs(dat_path):
     return g, spacing
 
 
+def pick_folder(initial=None, title="Select your Angry Birds Space folder", show=True):
+    """Windows' own Explorer-style "Select Folder" dialog (IFileOpenDialog via ctypes). Returns a path or None."""
+    import ctypes
+    import uuid
+    from ctypes import POINTER, byref, c_uint, c_void_p, c_wchar_p
+
+    class GUID(ctypes.Structure):
+        _fields_ = [("data", ctypes.c_ubyte * 16)]
+
+    def guid(s):
+        g = GUID()
+        ctypes.memmove(byref(g), uuid.UUID(s).bytes_le, 16)
+        return g
+
+    def call(obj, index, *args, argtypes=()):
+        vtbl = ctypes.cast(obj, POINTER(POINTER(c_void_p))).contents
+        return ctypes.WINFUNCTYPE(ctypes.HRESULT, c_void_p, *argtypes)(vtbl[index])(obj, *args)
+
+    ctypes.windll.ole32.CoInitializeEx(None, 2)  # apartment threaded; fine if already initialised
+    dlg, item = c_void_p(), c_void_p()
+    ctypes.oledll.ole32.CoCreateInstance(byref(guid("DC1C5A9C-E88A-4DDE-A5A1-60F82A20AEF7")), None, 1,
+                                         byref(guid("D57C7288-D4AD-4768-BE02-9D969532D960")), byref(dlg))
+    try:
+        opts = c_uint()
+        call(dlg, 10, byref(opts), argtypes=(POINTER(c_uint),))                    # GetOptions
+        call(dlg, 9, c_uint(opts.value | 0x20 | 0x40), argtypes=(c_uint,))         # SetOptions: PICKFOLDERS|FORCEFILESYSTEM
+        call(dlg, 17, c_wchar_p(title), argtypes=(c_wchar_p,))                     # SetTitle
+        if initial and os.path.isdir(initial):
+            start = c_void_p()
+            if ctypes.windll.shell32.SHCreateItemFromParsingName(
+                    c_wchar_p(os.path.abspath(initial)), None, byref(guid("43826D1E-E718-42EE-BC55-A1E261C37BFE")),
+                    byref(start)) == 0:
+                call(dlg, 12, start, argtypes=(c_void_p,))                         # SetFolder
+                call(start, 2)                                                     # Release
+        if not show:  # self-test: everything up to opening the window
+            return "ok"
+        try:
+            call(dlg, 3, ctypes.windll.user32.GetForegroundWindow(), argtypes=(c_void_p,))  # Show (modal)
+        except OSError:
+            return None  # cancelled
+        call(dlg, 20, byref(item), argtypes=(POINTER(c_void_p),))                 # GetResult
+        name = c_wchar_p()
+        call(item, 5, c_uint(0x80058000), byref(name), argtypes=(c_uint, POINTER(c_wchar_p)))  # SIGDN_FILESYSPATH
+        path = name.value
+        ctypes.windll.ole32.CoTaskMemFree(name)
+        call(item, 2)
+        return path
+    finally:
+        call(dlg, 2)  # Release
+
+
 def make_desktop_shortcut(game_dir):
-    if getattr(sys, "frozen", False):
-        target, args = sys.executable, '"Angry Birds Space Launcher"'
-    else:
-        import Utils
-        target, args = sys.executable, f'"{os.path.join(Utils.local_path(), "Launcher.py")}" "Angry Birds Space Launcher"'
-    icon = os.path.join(game_dir, "AngryBirdsSpace.exe")
+    """Desktop shortcut to the launcher exe the mod install puts in the game folder."""
+    exe = os.path.join(game_dir, gamefiles.LAUNCHER_EXE)
+    if not os.path.exists(exe):
+        gamefiles.install(game_dir)
     q = lambda v: "'" + v.replace("'", "''") + "'"
     script = ("$d=[Environment]::GetFolderPath('Desktop');"
               "$s=(New-Object -ComObject WScript.Shell).CreateShortcut((Join-Path $d 'Angry Birds Space Archipelago.lnk'));"
-              f"$s.TargetPath={q(target)};$s.Arguments={q(args)};$s.WorkingDirectory={q(os.path.dirname(target))};"
-              f"$s.IconLocation={q(icon)};$s.Save()")
+              f"$s.TargetPath={q(exe)};$s.WorkingDirectory={q(game_dir)};$s.IconLocation={q(exe)};$s.Save()")
     subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", script], check=True,
                    creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0), timeout=60)
 
@@ -258,6 +306,13 @@ def launch(*args):
             self.game = str(get_settings().angry_birds_space_options.game_path)
             self.assets = Assets(self.game)
             Window.size = (W, H)
+            try:  # our launcher icon for the window and taskbar
+                import pkgutil, tempfile
+                ico = os.path.join(tempfile.gettempdir(), "abs_ap_launcher_icon.png")
+                open(ico, "wb").write(pkgutil.get_data(__name__.rsplit(".", 1)[0], "mod/ap_launcher_icon.png"))
+                Window.set_icon(ico)
+            except Exception:
+                pass
             self.root_layout = FloatLayout()
             self.root_layout.bind(size=lambda *a: self.layout())
             self.status = None
@@ -423,17 +478,18 @@ def launch(*args):
             r.add_widget(p)
             px, py = p.pos
             ok = self.assets.ok
-            title = GameText(self.assets, "GAME FOLDER", "head", 36 * s, size=(640 * s, 44 * s), pos=(px, py + 240 * s)) \
-                if ok else None
-            if title:
-                p.add_widget(title)
-            path_in = TextInput(text=self.game, multiline=False, size_hint=(None, None), size=(560 * s, 36 * s), pos=(px + 40 * s, py + 180 * s),
-                                font_size=16 * s, background_color=(0.05, 0.1, 0.18, 1), foreground_color=(1, 1, 1, 1),
-                                cursor_color=(1, 1, 1, 1))
-            p.add_widget(path_in)
+            if ok:
+                p.add_widget(GameText(self.assets, "GAME FOLDER", "head", 36 * s, size=(640 * s, 44 * s),
+                                      pos=(px, py + 240 * s)))
+            p.add_widget(TextInput(text=self.game, readonly=True, multiline=False, size_hint=(None, None),
+                                   size=(560 * s, 36 * s), pos=(px + 40 * s, py + 180 * s), font_size=16 * s,
+                                   background_color=(0.05, 0.1, 0.18, 1), foreground_color=(1, 1, 1, 1),
+                                   cursor_color=(0, 0, 0, 0)))
 
-            def save():
-                new = path_in.text.strip().strip('"')
+            def browse():
+                new = pick_folder(self.game if os.path.isdir(self.game) else None)
+                if not new:
+                    return
                 if not os.path.exists(os.path.join(new, "AngryBirdsSpace.exe")):
                     self.folder_panel("That folder has no AngryBirdsSpace.exe", first_run)
                     return
@@ -457,7 +513,8 @@ def launch(*args):
                     self.folder_panel(f"Uninstall failed: {e}", first_run)
 
             if ok:
-                acts = [("ICON_CHECK", "Save", save), ("ICON_X", "Uninstall mod", uninstall), ("ICON_BACK", "Back", self.layout)]
+                acts = [("ICON_MENU", "Browse", browse), ("ICON_X", "Uninstall mod", uninstall),
+                        ("ICON_BACK", "Back", self.layout)]
                 for i, (icon, cap, cb) in enumerate(acts):
                     b = RoundButton(self, icon, cap, cb, size=(80 * s, 104 * s))
                     b.pos = (px + (110 + i * 170) * s, py + 30 * s)
@@ -468,9 +525,10 @@ def launch(*args):
             else:  # no game assets to draw with yet: plain controls
                 from kivy.uix.button import Button
                 from kivy.uix.label import Label
-                p.add_widget(Label(size_hint=(None, None), text="Where is Angry Birds Space installed?\n(the folder with AngryBirdsSpace.exe)\n" + msg,
-                                   halign="center", size=(640 * s, 80 * s), pos=(px, py + 220 * s), font_size=18 * s))
-                p.add_widget(Button(text="Save", size_hint=(None, None), size=(160 * s, 44 * s), pos=(px + 240 * s, py + 60 * s),
-                                    on_release=lambda *a: save()))
+                p.add_widget(Label(size_hint=(None, None), halign="center", size=(640 * s, 80 * s), pos=(px, py + 220 * s),
+                                   font_size=18 * s,
+                                   text="Where is Angry Birds Space installed?\n(the folder with AngryBirdsSpace.exe)\n" + msg))
+                p.add_widget(Button(text="Browse...", size_hint=(None, None), size=(160 * s, 44 * s),
+                                    pos=(px + 240 * s, py + 60 * s), on_release=lambda *a: browse()))
 
     LauncherApp().run()

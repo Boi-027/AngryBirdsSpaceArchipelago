@@ -17,7 +17,9 @@ ICON_SPRITE = b"ICON_ARCHIPELAGO"
 ATLAS = os.path.join("data", "images", "pc", "MENU_ELEMENTS_1")
 REPLACED = [os.path.join("data", "scripts", "gamelogic.lua"), ATLAS + ".png", ATLAS + ".dat"]
 HELPER_LNK = "ap_helper.lnk"  # opened by the game (ShellExecute) to start the hidden client
-ADDED = [os.path.join("data", "scripts", "gamelogic_orig.lua"), os.path.join("data", "scripts", "ap.lua"), HELPER_LNK]
+LAUNCHER_EXE = "Angry Birds Space Archipelago.exe"  # opens the game-styled launcher directly
+ADDED = [os.path.join("data", "scripts", "gamelogic_orig.lua"), os.path.join("data", "scripts", "ap.lua"), HELPER_LNK,
+         LAUNCHER_EXE]
 
 # ---------------------------------------------------------------- AES-256 decrypt (CBC)
 _SBOX = bytes.fromhex(
@@ -187,7 +189,8 @@ def _pkg(name):
 def is_installed(game_dir):
     p = os.path.join(game_dir, "data", "scripts", "ap.lua")
     return (os.path.exists(p) and open(p, "rb").read() == _pkg("ap.lua")
-            and os.path.exists(os.path.join(game_dir, HELPER_LNK)))
+            and os.path.exists(os.path.join(game_dir, HELPER_LNK))
+            and os.path.exists(os.path.join(game_dir, LAUNCHER_EXE)))
 
 
 def install(game_dir, launcher=None):
@@ -209,6 +212,11 @@ def install(game_dir, launcher=None):
     open(os.path.join(game_dir, ATLAS + ".png"), "wb").write(png)
     open(os.path.join(game_dir, ATLAS + ".dat"), "wb").write(dat)
     make_helper_shortcut(game_dir, launcher)
+    exe = os.path.join(game_dir, LAUNCHER_EXE)
+    try:
+        open(exe, "wb").write(_pkg("AngryBirdsSpaceArchipelago.exe"))
+    except PermissionError:
+        pass  # the exe is running (it started this install); the copy there is fine
 
 
 def make_helper_shortcut(game_dir, launcher=None):

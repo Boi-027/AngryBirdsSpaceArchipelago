@@ -71,9 +71,10 @@ Only levels you clear while connected to a seed count, so an old save never give
 
 ### A launcher that looks like the game
 
-**Angry Birds Space Launcher** (in the Archipelago Launcher) installs and updates the mod, starts the game and
-manages **save profiles**: every seed can have its own save with its own stars and scores. It can also put a
-shortcut on your desktop. Everything in it is drawn from your own game files.
+**Angry Birds Space Archipelago.exe** opens a launcher that installs and updates the mod, starts the game and
+manages **save profiles**: every seed can have its own save with its own stars and scores. Pick your game
+folder with the normal Windows folder picker, and put a shortcut on your desktop with one click.
+Everything in it is drawn from your own game files.
 
 <p align="center"><img src="docs/images/launcher.png" alt="Launcher and save profiles"></p>
 
@@ -84,12 +85,15 @@ shortcut on your desktop. Everything in it is drawn from your own game files.
 You need **Angry Birds Space for PC** (the Rovio PC release with `AngryBirdsSpace.exe`) and
 **Archipelago 0.6.4 or newer**.
 
-1. Download `angrybirdsspace.apworld` from the [releases](../../releases) and put it in Archipelago's
-   `custom_worlds` folder.
-2. Open the Archipelago Launcher and start **Angry Birds Space Launcher**.
-   Set your game folder if it asks, then press **Install mod**. Your original files are kept in
-   `<game folder>/ap_backup`, and *Game folder → Uninstall mod* puts them back.
+1. Download `angrybirdsspace.apworld` and `Angry Birds Space Archipelago.exe` from the [releases](../../releases).
+   Put the apworld in Archipelago's `custom_worlds` folder.
+2. Run **Angry Birds Space Archipelago.exe**. Choose your game folder (*Game folder → Browse*) and press
+   **Install mod**. Your original files are kept in `<game folder>/ap_backup`, and
+   *Game folder → Uninstall mod* puts them back. The install also puts a copy of the exe in your game folder,
+   and *Shortcut* adds it to your desktop.
 3. Press **Play**, click the Archipelago button in the game and connect.
+
+The launcher is also listed in the Archipelago Launcher as **Angry Birds Space Launcher**.
 
 The standalone **Angry Birds Space Client** is still there if you want the server log and commands like `!hint`.
 
@@ -129,7 +133,8 @@ python tools/lua_check.py game/ap.lua
 
 `tools/build.py` and the logo tools read the original `MENU_ELEMENTS_1.png/.dat` from
 `backup/data/images/pc/` and the fonts from your game folder; copy them there from your own install first.
-Building needs Python 3.12 with `cryptography`, `py7zr` and `Pillow`.
+Building needs Python 3.12 with `cryptography`, `py7zr` and `Pillow`; the launcher exe
+([`tools/exe/Launcher.cs`](tools/exe/Launcher.cs)) is compiled with the C# compiler that ships with Windows.
 
 ## Credits
 
