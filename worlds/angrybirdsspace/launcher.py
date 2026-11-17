@@ -277,6 +277,36 @@ def launch(*args):
             super().on_touch_down(touch)
             return True  # modal
 
+    class InstallBar(Widget):  # not "ProgressBar": Kivy would apply its built-in ProgressBar style rules
+        """Rounded track with a green fill, in the colours of the game's buttons."""
+        def __init__(self, **kw):
+            kw.setdefault("size_hint", (None, None))
+            super().__init__(**kw)
+            self.value = 0.0
+            self.bind(pos=self.redraw, size=self.redraw)
+            self.redraw()
+
+        def set(self, value):
+            self.value = max(0.0, min(1.0, value))
+            self.redraw()
+
+        def redraw(self, *a):
+            self.canvas.clear()
+            r = self.height / 2
+            with self.canvas:
+                Color(1, 1, 1, 1)                                     # white rim, like the round buttons
+                RoundedRectangle(pos=self.pos, size=self.size, radius=[r])
+                Color(0.08, 0.27, 0.04, 1)                            # dark green track
+                RoundedRectangle(pos=(self.x + 3, self.y + 3), size=(self.width - 6, self.height - 6), radius=[r - 3])
+                fw = (self.width - 10) * self.value
+                if fw > 1:
+                    h = self.height - 10
+                    Color(0.45, 0.75, 0.08, 1)                        # green fill
+                    RoundedRectangle(pos=(self.x + 5, self.y + 5), size=(max(fw, h), h), radius=[h / 2])
+                    Color(0.78, 0.93, 0.25, 1)                        # light top half, like the button shine
+                    RoundedRectangle(pos=(self.x + 5, self.y + 5 + h * 0.5), size=(max(fw, h), h * 0.42),
+                                     radius=[h * 0.21])
+
     class Row(ButtonBehavior, Widget):
         def __init__(self, app, name, active, selected, on_pick, **kw):
             kw.setdefault("size_hint", (None, None))
@@ -316,8 +346,9 @@ def launch(*args):
             self.root_layout = FloatLayout()
             self.root_layout.bind(size=lambda *a: self.layout())
             self.status = None
-            # ABS_LAUNCHER_PANEL=profiles|folder opens a panel at start (used to check layouts)
-            start = {"profiles": lambda: self.profiles_panel(), "folder": lambda: self.folder_panel()}.get(
+            # ABS_LAUNCHER_PANEL=profiles/folder/install opens that screen at start (used to check layouts)
+            start = {"profiles": lambda: self.profiles_panel(), "folder": lambda: self.folder_panel(),
+                     "install": lambda: self.install()}.get(
                 os.environ.get("ABS_LAUNCHER_PANEL", ""), self.layout)
             Clock.schedule_once(lambda dt: start(), 0.2)
             Clock.schedule_interval(lambda dt: self.refresh_status(), 2)
@@ -384,18 +415,59 @@ def launch(*args):
             Clock.schedule_once(lambda dt: setattr(self, "note", None), 5)
 
         # ---------------- actions
-        def install(self):
-            try:
-                gamefiles.install(self.game)
-                self.say("Archipelago mod installed!")
-            except Exception as e:
-                self.say(f"Install failed: {e}")
+        def install(self, then=None):
+            """Install in a background thread behind a progress panel; `then` runs after a successful install."""
+            import threading
+            if getattr(self, "installing", False):
+                return
+            self.installing = True
             self.layout()
+            r = self.root_layout
+            s = r.height / H
+            p = Panel(size=(600 * s, 230 * s), pos=((r.width - 600 * s) / 2, (r.height - 230 * s) / 2))
+            r.add_widget(p)
+            px, py = p.pos
+            p.add_widget(GameText(self.assets, "INSTALLING", "head", 36 * s, size=(600 * s, 44 * s), pos=(px, py + 170 * s)))
+            bar = InstallBar(size=(500 * s, 40 * s), pos=(px + 50 * s, py + 95 * s))
+            p.add_widget(bar)
+            pct = GameText(self.assets, "0%", "basic", 20 * s, size=(600 * s, 26 * s), pos=(px, py + 102 * s))
+            p.add_widget(pct)
+            step = GameText(self.assets, "", "basic", 18 * s, size=(600 * s, 24 * s), pos=(px, py + 45 * s))
+            p.add_widget(step)
+
+            def show(f, text):
+                bar.set(f)
+                pct.set(f"{int(f * 100)}%")
+                step.set(text)
+
+            def report(f, text):  # called from the install thread
+                Clock.schedule_once(lambda dt: show(f, text))
+
+            def work():
+                try:
+                    gamefiles.install(self.game, progress=report)
+                    err = None
+                except Exception as e:
+                    err = e
+                Clock.schedule_once(lambda dt: finished(err), 0.4)
+
+            def finished(err):
+                self.installing = False
+                self.layout()
+                if err:
+                    self.say(f"Install failed: {err}")
+                else:
+                    self.say("Archipelago mod installed!")
+                    if then:
+                        then()
+
+            threading.Thread(target=work, daemon=True).start()
 
         def play(self):
+            if not gamefiles.is_installed(self.game):
+                self.install(then=self.play)
+                return
             try:
-                if not gamefiles.is_installed(self.game):
-                    gamefiles.install(self.game)
                 if gamefiles.game_running():
                     self.say("The game is already running")
                     return

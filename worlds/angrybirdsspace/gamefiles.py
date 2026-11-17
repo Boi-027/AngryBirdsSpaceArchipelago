@@ -86,7 +86,7 @@ def decrypt_save(raw: bytes) -> str:
 
 
 # ---------------------------------------------------------------- minimal PNG (RGBA8, non-interlaced)
-def png_read(data):
+def png_read(data, progress=None):
     assert data[:8] == b"\x89PNG\r\n\x1a\n"
     p, idat = 8, b""
     while p < len(data):
@@ -100,6 +100,8 @@ def png_read(data):
         p += 12 + n
     raw, stride, rows, prev = zlib.decompress(idat), w * 4, [], bytearray(w * 4)
     for y in range(h):
+        if progress and y % 32 == 0:
+            progress(y / h)
         f, line = raw[y * (stride + 1)], bytearray(raw[y * (stride + 1) + 1:(y + 1) * (stride + 1)])
         for x in range(stride):
             a = line[x - 4] if x >= 4 else 0
@@ -146,10 +148,11 @@ def add_sprite(dat, name, x, y, w, h, px, py):
     return bytes(dat)
 
 
-def build_logo_atlas(atlas_png, atlas_dat, overlay_png, icon_png):
+def build_logo_atlas(atlas_png, atlas_dat, overlay_png, icon_png, progress=None):
     """Return (png, dat) bytes: the atlas grown downward with the logo + overlay (rect repointed)
     and the Archipelago menu icon (new sprite ICON_ARCHIPELAGO)."""
-    aw, ah, arows = png_read(atlas_png)
+    report = progress or (lambda f: None)
+    aw, ah, arows = png_read(atlas_png, lambda f: report(0.75 * f))  # decoding the atlas is most of the work
     ow, oh, orows = png_read(overlay_png)
     iw, ih, irows = png_read(icon_png)
     dat = bytearray(atlas_dat)
@@ -157,6 +160,7 @@ def build_logo_atlas(atlas_png, atlas_dat, overlay_png, icon_png):
     x, y, w, h, px, py = struct.unpack_from(">4H2h", dat, off)
     assert ow == w and oh >= h, "overlay does not match this game's logo sprite"
     new = [bytearray(r) for r in orows]
+    report(0.78)
     for j in range(h):  # original logo drawn on top of the overlay
         src, dst = arows[y + j], new[j]
         for i in range(w):
@@ -178,7 +182,10 @@ def build_logo_atlas(atlas_png, atlas_dat, overlay_png, icon_png):
     rows.append(bytearray(aw * 4))
     struct.pack_into(">4H2h", dat, off, x, ny, w, oh, px, py)
     dat = add_sprite(dat, ICON_SPRITE, 0, iy, iw, ih, iw // 2, ih // 2)
-    return png_write(aw, len(rows), rows), dat
+    report(0.85)
+    png = png_write(aw, len(rows), rows)
+    report(1.0)
+    return png, dat
 
 
 # ---------------------------------------------------------------- install / uninstall
@@ -193,30 +200,38 @@ def is_installed(game_dir):
             and os.path.exists(os.path.join(game_dir, LAUNCHER_EXE)))
 
 
-def install(game_dir, launcher=None):
+def install(game_dir, launcher=None, progress=None):
+    """progress(fraction, step text) is called along the way when given (the launcher's progress bar)."""
+    step = progress or (lambda f, text: None)
     if not os.path.exists(os.path.join(game_dir, "AngryBirdsSpace.exe")):
         raise FileNotFoundError(f"AngryBirdsSpace.exe not found in {game_dir}")
+    step(0.0, "Backing up the original game files")
     backup = os.path.join(game_dir, BACKUP_DIR)
     for rel in REPLACED:  # the backup is taken once and never overwritten
         dst = os.path.join(backup, rel)
         if not os.path.exists(dst):
             os.makedirs(os.path.dirname(dst), exist_ok=True)
             shutil.copy2(os.path.join(game_dir, rel), dst)
+    step(0.05, "Installing the Archipelago scripts")
     scripts = os.path.join(game_dir, "data", "scripts")
     shutil.copy2(os.path.join(backup, REPLACED[0]), os.path.join(scripts, "gamelogic_orig.lua"))
     for f in ("gamelogic.lua", "ap.lua"):
         open(os.path.join(scripts, f), "wb").write(_pkg(f))
+    step(0.1, "Painting the Archipelago title screen")
     png, dat = build_logo_atlas(open(os.path.join(backup, ATLAS + ".png"), "rb").read(),
                                 open(os.path.join(backup, ATLAS + ".dat"), "rb").read(), _pkg("logo_overlay.png"),
-                                _pkg("ap_menu_icon.png"))
+                                _pkg("ap_menu_icon.png"), lambda f: step(0.1 + 0.75 * f, "Painting the Archipelago title screen"))
     open(os.path.join(game_dir, ATLAS + ".png"), "wb").write(png)
     open(os.path.join(game_dir, ATLAS + ".dat"), "wb").write(dat)
+    step(0.87, "Setting up the in-game connection")
     make_helper_shortcut(game_dir, launcher)
+    step(0.97, "Adding the launcher")
     exe = os.path.join(game_dir, LAUNCHER_EXE)
     try:
         open(exe, "wb").write(_pkg("AngryBirdsSpaceArchipelago.exe"))
     except PermissionError:
         pass  # the exe is running (it started this install); the copy there is fine
+    step(1.0, "Done!")
 
 
 def make_helper_shortcut(game_dir, launcher=None):
