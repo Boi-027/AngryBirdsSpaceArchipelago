@@ -1,0 +1,8 @@
+# original game files and anything built from them: never committed
+backup/
+build/
+tools/ap_dump.txt
+# personal seeds and YAMLs
+seeds/
+__pycache__/
+*.pyc
